@@ -14,7 +14,7 @@
     "seed": "node server/db/seed.js",
     "setup": "npm run migrate && npm run seed",
     "build": "npm --prefix client ci && npm --prefix client run build",
-    "test": "node --test --test-concurrency=1 server/test/",
+    "test": "node --test --test-concurrency=1 \"server/test/**/*.test.js\"",
     "test:authz-removal": "node server/scripts/authz-removal-check.js",
     "verify-audit": "node server/scripts/verify-audit.js"
   },
