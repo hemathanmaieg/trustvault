@@ -98,5 +98,5 @@ server/
   test/               149 tests
   scripts/            authz-removal-check.js, verify-audit.js
 client/               React app
-docs/                 step-by-step build notes, authz removal report, demo script
+docs/                 build log (steps/), authz removal report, demo script, interview prep
 ```
