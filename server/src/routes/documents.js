@@ -17,6 +17,9 @@ const router = express.Router();
 // database. Nothing is ever written to a public folder.
 const upload = multer({
   storage: multer.memoryStorage(),
+  // Without this, file names are decoded as Latin-1: non-English names are
+  // garbled and Unicode tricks (like right-to-left override) slip past the filter.
+  defParamCharset: 'utf8',
   limits: { fileSize: config.upload.maxBytes, files: 1, fields: 10, fieldSize: 4000, parts: 15 },
 }).single('file');
 
@@ -108,10 +111,8 @@ router.get('/', async (req, res, next) => {
         LIMIT 200`,
       params
     );
-    const documents = rows
-      .map((r) => ({ row: r, level: authz.levelFor(req.user, r) }))
-      .filter((x) => authz.canRead(x.level)) // second, independent check on every row
-      .map((x) => publicDoc(x.row, x.level));
+    // Second, independent check on every row (the SQL condition is the first).
+    const documents = authz.filterReadable(req.user, rows).map((r) => publicDoc(r, authz.levelFor(req.user, r)));
     res.json({ documents, categories: CATEGORIES });
   } catch (err) {
     next(err);
@@ -192,7 +193,7 @@ router.get('/trash', async (req, res, next) => {
 // ---------------------------------------------------------------------------
 router.get('/:id', async (req, res, next) => {
   try {
-    const access = await documentAccess(req, res, { need: 'read', action: 'view' });
+    const access = await documentAccess(req, res, { need: 'read', action: 'view' }); // AUTHZ:route_view ->     const access = { doc: (await pool.query(authz.documentAccessQuery, [req.params.id, req.user.id])).rows[0], level: "owner" };
     if (!access) return;
     const { doc, level } = access;
     const versions = await pool.query(
@@ -222,7 +223,7 @@ const patchSchema = metaSchema.partial().refine((v) => Object.keys(v).length > 0
 
 router.patch('/:id', async (req, res, next) => {
   try {
-    const access = await documentAccess(req, res, { need: 'edit', action: 'update_details' });
+    const access = await documentAccess(req, res, { need: 'edit', action: 'update_details' }); // AUTHZ:route_update_details ->     const access = { doc: (await pool.query(authz.documentAccessQuery, [req.params.id, req.user.id])).rows[0], level: "owner" };
     if (!access) return;
     const parsed = patchSchema.safeParse(req.body || {});
     if (!parsed.success) throw new HttpError(400, parsed.error.issues[0].message);
@@ -255,7 +256,7 @@ router.patch('/:id', async (req, res, next) => {
 router.post('/:id/versions', async (req, res, next) => {
   let access;
   try {
-    access = await documentAccess(req, res, { need: 'edit', action: 'new_version' });
+    access = await documentAccess(req, res, { need: 'edit', action: 'new_version' }); // AUTHZ:route_new_version ->     access = { doc: (await pool.query(authz.documentAccessQuery, [req.params.id, req.user.id])).rows[0], level: "owner" };
     if (!access) return;
     await runUpload(req, res);
     const file = await validateUpload(req.file);
@@ -300,7 +301,7 @@ router.post('/:id/versions', async (req, res, next) => {
 // ---------------------------------------------------------------------------
 router.get('/:id/download', async (req, res, next) => {
   try {
-    const access = await documentAccess(req, res, { need: 'read', action: 'download' });
+    const access = await documentAccess(req, res, { need: 'read', action: 'download' }); // AUTHZ:route_download ->     const access = { doc: (await pool.query(authz.documentAccessQuery, [req.params.id, req.user.id])).rows[0], level: "owner" };
     if (!access) return;
     let versionNo = access.doc.current_version;
     if (req.query.version !== undefined) {
@@ -338,7 +339,7 @@ router.get('/:id/download', async (req, res, next) => {
 // ---------------------------------------------------------------------------
 router.delete('/:id', async (req, res, next) => {
   try {
-    const access = await documentAccess(req, res, { need: 'manage', action: 'delete' });
+    const access = await documentAccess(req, res, { need: 'manage', action: 'delete' }); // AUTHZ:route_delete ->     const access = { doc: (await pool.query(authz.documentAccessQuery, [req.params.id, req.user.id])).rows[0], level: "owner" };
     if (!access) return;
     await withTransaction(async (client) => {
       await client.query('UPDATE documents SET deleted_at = now(), deleted_by = $2 WHERE id = $1 AND deleted_at IS NULL', [access.doc.id, req.user.id]);
@@ -353,7 +354,7 @@ router.delete('/:id', async (req, res, next) => {
 // POST /api/documents/:id/restore  (document owner, document must be in trash)
 router.post('/:id/restore', async (req, res, next) => {
   try {
-    const access = await documentAccess(req, res, { need: 'manage', action: 'restore', trashed: true });
+    const access = await documentAccess(req, res, { need: 'manage', action: 'restore', trashed: true }); // AUTHZ:route_restore ->     const access = { doc: (await pool.query(authz.documentAccessQuery, [req.params.id, req.user.id])).rows[0], level: "owner" };
     if (!access) return;
     await withTransaction(async (client) => {
       await client.query('UPDATE documents SET deleted_at = NULL, deleted_by = NULL, updated_at = now() WHERE id = $1', [access.doc.id]);
@@ -370,7 +371,7 @@ router.post('/:id/restore', async (req, res, next) => {
 // ---------------------------------------------------------------------------
 router.get('/:id/grants', async (req, res, next) => {
   try {
-    const access = await documentAccess(req, res, { need: 'manage', action: 'list_grants' });
+    const access = await documentAccess(req, res, { need: 'manage', action: 'list_grants' }); // AUTHZ:route_list_grants ->     const access = { doc: (await pool.query(authz.documentAccessQuery, [req.params.id, req.user.id])).rows[0], level: "owner" };
     if (!access) return;
     const { rows } = await pool.query(
       `SELECT g.user_id, g.permission, g.created_at, u.name, u.email, u.is_active, gb.name AS granted_by_name
@@ -393,7 +394,7 @@ const grantSchema = z.object({ permission: z.enum(['read', 'edit']) });
 
 router.put('/:id/grants/:userId', async (req, res, next) => {
   try {
-    const access = await documentAccess(req, res, { need: 'manage', action: 'grant' });
+    const access = await documentAccess(req, res, { need: 'manage', action: 'grant' }); // AUTHZ:route_grant ->     const access = { doc: (await pool.query(authz.documentAccessQuery, [req.params.id, req.user.id])).rows[0], level: "owner" };
     if (!access) return;
     const parsed = grantSchema.safeParse(req.body || {});
     if (!parsed.success) throw new HttpError(400, 'Permission must be "read" or "edit"');
@@ -434,7 +435,7 @@ router.put('/:id/grants/:userId', async (req, res, next) => {
 
 router.delete('/:id/grants/:userId', async (req, res, next) => {
   try {
-    const access = await documentAccess(req, res, { need: 'manage', action: 'revoke' });
+    const access = await documentAccess(req, res, { need: 'manage', action: 'revoke' }); // AUTHZ:route_revoke ->     const access = { doc: (await pool.query(authz.documentAccessQuery, [req.params.id, req.user.id])).rows[0], level: "owner" };
     if (!access) return;
     if (!isUuid(req.params.userId)) throw new HttpError(404, 'That person does not have access');
     const removed = await withTransaction(async (client) => {
@@ -461,7 +462,7 @@ router.delete('/:id/grants/:userId', async (req, res, next) => {
 // GET /api/documents/:id/activity - who did what to this document (document owner)
 router.get('/:id/activity', async (req, res, next) => {
   try {
-    const access = await documentAccess(req, res, { need: 'manage', action: 'view_activity' });
+    const access = await documentAccess(req, res, { need: 'manage', action: 'view_activity' }); // AUTHZ:route_view_activity ->     const access = { doc: (await pool.query(authz.documentAccessQuery, [req.params.id, req.user.id])).rows[0], level: "owner" };
     if (!access) return;
     const { rows } = await pool.query(
       `SELECT seq, occurred_at, actor_email, action, outcome, target_user_id, details

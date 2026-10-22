@@ -13,7 +13,7 @@ function isUuid(value) {
 /** Reject state-changing requests that lack our custom header (CSRF). */
 async function csrfProtect(req, res, next) {
   if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) return next();
-  if (authz.hasCsrfHeader(req)) return next();
+  if (authz.hasCsrfHeader(req)) return next(); // AUTHZ:csrfProtect -> return next();
   try {
     await audit.record(audit.fromReq(req, {
       action: 'csrf_check', outcome: 'denied', details: { method: req.method, path: req.path.slice(0, 200) },
@@ -23,7 +23,7 @@ async function csrfProtect(req, res, next) {
 }
 
 async function requireAuth(req, res, next) {
-  if (req.user) return next();
+  if (req.user) return next(); // AUTHZ:requireAuth -> return next();
   // Refused attempts on document routes are part of the evidence trail.
   if (req.originalUrl.startsWith('/api/documents')) {
     try {
@@ -41,7 +41,7 @@ async function requireAuth(req, res, next) {
 
 function requireRole(check, action) {
   return async (req, res, next) => {
-    if (check(req.user)) return next();
+    if (check(req.user)) return next(); // AUTHZ:requireRole -> return next();
     try {
       await audit.record(audit.fromReq(req, {
         action, outcome: 'denied', details: { reason: 'role', role: req.user && req.user.role, path: req.originalUrl.slice(0, 200) },
@@ -82,7 +82,7 @@ async function documentAccess(req, res, { need, action, trashed = false }) {
   // Live routes need a live document; trash routes need a deleted one.
   const stateOk = trashed ? Boolean(row) && row.deleted_at !== null : authz.isDocumentLive(row);
   const level = authz.levelFor(req.user, row);
-  const allowed = stateOk && NEEDS[need](level);
+  const allowed = stateOk && NEEDS[need](level); // AUTHZ:documentAccess -> const allowed = Boolean(row);
 
   if (!allowed) {
     await audit.record(audit.fromReq(req, {

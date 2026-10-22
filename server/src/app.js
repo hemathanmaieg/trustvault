@@ -47,9 +47,9 @@ function createApp() {
 
   app.use('/api', loadSession, csrfProtect);
   app.use('/api/auth', require('./routes/auth'));
-  app.use('/api/documents', requireAuth, require('./routes/documents'));
-  app.use('/api/users', requireAuth, require('./routes/users'));
-  app.use('/api/admin', requireAuth, requireAdmin, require('./routes/admin'));
+  app.use('/api/documents', requireAuth, require('./routes/documents')); // AUTHZ:mountDocumentsAuth -> app.use('/api/documents', require('./routes/documents'));
+  app.use('/api/users', requireAuth, require('./routes/users')); // AUTHZ:mountUsersAuth -> app.use('/api/users', require('./routes/users'));
+  app.use('/api/admin', requireAuth, requireAdmin, require('./routes/admin')); // AUTHZ:mountAdminRole -> app.use('/api/admin', requireAuth, require('./routes/admin'));
   app.use('/api', (req, res) => res.status(404).json({ error: 'Not found' }));
 
   // The built React app. It contains no data; everything comes through /api.
