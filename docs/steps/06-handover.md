@@ -6,7 +6,7 @@
 
 | Hand-in item from the brief | Status | Where |
 | --- | --- | --- |
-| Public Git repository with history | Code ready, 10 commits so far; **push needed** | – |
+| Public Git repository with history | Code ready, 9 commits so far; **push needed** | – |
 | Live URL with seed data, credentials in README | Config ready and tested from a clean clone; **deploy needed** | `render.yaml`, DEPLOY.md, README |
 | THREATS.md | Done: 40+ threats, status, tests, what held under attack | THREATS.md |
 | PROMPTS.md (5+ dated entries, 2+ on authz/audit) | 12 entries, 7 on access control or audit, each with its commit | PROMPTS.md |
