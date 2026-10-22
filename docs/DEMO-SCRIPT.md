@@ -38,8 +38,8 @@ Aim for about 30 seconds per section. Say the words in *italics*; do the steps i
 5. **Documents** (admin): *"The admin sees titles and activity, but there is no way for an admin to open a document."*
 
 **4:25 — Tests (30 s)**
-1. Terminal: `npm test` (show 131 passing), then the summary of `docs/authz-removal-report.md`.
-2. *"The judges said they would remove one authorisation check and run our tests. We did that for all 33 checks; every removal makes tests fail."*
+1. Terminal: `npm test` (show 149 passing), then the summary of `docs/authz-removal-report.md`.
+2. *"The judges said they would remove one authorisation check and run our tests. We did that for all 34 checks; every removal makes tests fail."*
 
 **4:55 — Close (5 s)**
 *"Thank you. The threats we closed and the ones we accepted are in THREATS.md."*

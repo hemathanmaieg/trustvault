@@ -49,16 +49,18 @@ Access is **per document, to named people only**. Categories organise documents;
 2. **We can prove who reached it.** Every upload, download, view, change, deletion and access change is recorded, along with every refused attempt (including unauthenticated ones and probes for made-up ids). The log is append-only (database triggers refuse `UPDATE`, `DELETE`, `TRUNCATE`), and each entry carries a keyed hash of the previous one (HMAC-SHA256, key held outside the database). An admin can verify the chain in one click.
 3. **Taking access away works immediately.** There are no signed links, no permission-carrying tokens and no caches. Revoking, deleting a document, disabling a person or changing their role takes effect on that person's very next request, in the same session.
 
-**Where is the download decision made?** `server/src/routes/documents.js`, in the download route, at the line `const access = await documentAccess(req, res, { need: 'read', action: 'download' })`. Remove it and any signed-in user could download any document by id. 19 tests fail when that happens (see `docs/authz-removal-report.md`).
+**Where is the download decision made?** `server/src/routes/documents.js`, in the download route, at the line `const access = await documentAccess(req, res, { need: 'read', action: 'download' })`. Remove it and any signed-in user could download any document by id. 17 tests fail when that happens (see `docs/authz-removal-report.md`).
 
 ## Tests
 
 ```bash
-npm test                      # 131 tests: isolation, permissions, revocation, audit, uploads, sign-in
-npm run test:authz-removal    # removes each of 33 permission checks, one at a time; every removal is caught
+npm test                      # 149 tests: isolation, permissions, revocation, audit, uploads, sign-in, hardening
+npm run test:authz-removal    # removes each of 34 permission checks, one at a time; every removal is caught
 ```
 
-Test names start with the THREATS.md id they cover (T01 to T26).
+Test names start with the THREATS.md id they cover.
+
+The code was also attacked by an independent reviewer that had not written it; what it found and how each was fixed is in PROMPTS.md (entries 6–12) and THREATS.md.
 
 ## Run it locally
 
@@ -93,7 +95,7 @@ server/
     routes/           auth, documents, users, admin
     app.js, config.js, db.js, errors.js
   db/                 schema.sql, migrate.js, seed.js, create-local-db.sql
-  test/               131 tests
+  test/               149 tests
   scripts/            authz-removal-check.js, verify-audit.js
 client/               React app
 docs/                 step-by-step build notes, authz removal report, demo script

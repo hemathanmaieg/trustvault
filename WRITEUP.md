@@ -17,9 +17,9 @@ The ten required features, and where each is:
 | 7 | Search by name, owner, category, date | Documents page filters; `GET /api/documents` |
 | 8 | Upload validation | `server/src/upload/validate.js` (type by content, size, name) |
 | 9 | Admin view of activity and permission changes | Alerts, Activity log, Documents overview |
-| 10 | Tests that one user cannot reach another's documents | `server/test/isolation.test.js` and 5 more files, 131 tests |
+| 10 | Tests that one user cannot reach another's documents | `server/test/isolation.test.js` and 6 more files, 149 tests |
 
-Beyond the floor: version history (every version protected and downloadable), trash with restore, a per-document activity view for owners, admin alerts (retries after revoke, repeated refusals, bulk downloads, locked accounts), a one-click audit chain check, account lockout and admin unlock, password change that signs out other devices, and a script that removes each of the 33 permission checks one at a time to prove the tests catch it.
+Beyond the floor: version history (every version protected and downloadable), trash with restore, a per-document activity view for owners, admin alerts (retries after revoke, repeated refusals, bulk downloads, locked accounts), a one-click audit chain check, account lockout and admin unlock, password change that signs out other devices, and a script that removes each of the 34 permission checks one at a time to prove the tests catch it.
 
 ## The permission model, in our own words
 
@@ -55,9 +55,17 @@ Where it was wrong (details and commits in PROMPTS.md):
 - **File names were decoded as Latin-1**, which let a right-to-left override character slip past the filter. Found by a test.
 - A **logout test could pass without testing anything**. Rewritten to prove the cookie works before logout.
 - **`npm test` did not run at all on Node 22**, and the **production build would have skipped Vite** on Render. Both caught before deployment.
-- The independent review's findings and fixes are listed in PROMPTS.md and THREATS.md.
+- After all that, **a second, independent AI review** attacked the running app as a hostile judge and found what every test had missed:
+  - Typing a document id in capital letters made the audit chain report tampering, so anyone could make the evidence worthless.
+  - An editor revoked halfway through a slow upload could still add the new version.
+  - Renaming a document wiped its description.
+  - NUL bytes and invalid dates caused crashes that left no audit record.
+  - Anonymous requests could flood the audit log.
+  - An admin could demote themselves by typing their own id in capitals.
 
-The lesson we took: code that passes every test first time deserves the most suspicion. Twice that turned up a test that could not fail.
+  All are fixed, each with a regression test (PROMPTS.md entries 6–12).
+
+The lesson we took: code that passes every test deserves the most suspicion. Tests only check what someone thought of; an attacker, or a reviewer told to act like one, checks everything else.
 
 ## What is unfinished or weak
 
@@ -65,6 +73,6 @@ Honest list; each is also in THREATS.md with the reason it was accepted.
 
 - An **administrator can reset an owner's password and sign in as them**. This is logged, signs the owner out (so they notice), and is flagged in the audit, but it is not prevented. A real fix needs a second approver or a reset link sent to the user's email.
 - Someone with **full database control and the server's secret key** could rewrite the audit history. The keyed chain, the triggers and the head-hash lines in the host's logs make this hard and detectable, but not impossible.
-- **No general request rate limit** beyond sign-in. A determined client could fill the audit log with refused attempts.
+- **Rate limits are per address.** A flood from many addresses at once is not stopped; that needs a firewall or CDN in front.
 - **No malware scanning** of uploads.
 - The free host **sleeps after 15 minutes**; the first request can take up to a minute.

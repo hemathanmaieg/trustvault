@@ -7,6 +7,9 @@ Base path: `/api`. All bodies are JSON unless marked *multipart*.
 - **Sign-in:** a session cookie (`__Host-tv_session` in production, `tv_session` locally), HttpOnly, Secure, SameSite=Strict. The session and the user's current role and active flag are re-read from the database on **every** request.
 - **Changes need a header:** every `POST`, `PUT`, `PATCH` and `DELETE` must send `X-TrustVault-Request: 1`, or it gets `403` (cross-site request protection).
 - **Document routes answer `404 "Document not found"`** both when the document does not exist and when you may not touch it, so ids cannot be probed. Every refusal is written to the audit log.
+- **Rate limits:** 300 requests a minute per address; 30 a minute for callers who are not signed in. Over the limit: `429`.
+- **Ids:** document and user ids are UUIDs, accepted in any letter case.
+- **Text:** NUL characters and broken Unicode in queries or bodies are refused with `400`.
 - **Who decides:** every permission decision is a function in `server/src/authz.js`, applied by `server/src/guards.js`.
 
 ### Access levels on a document
@@ -25,7 +28,7 @@ Administrators never hold any level on any document.
 
 | Method | Path | Who may call | Body / query | Result |
 | --- | --- | --- | --- | --- |
-| POST | `/api/auth/login` | Anyone (30 tries per 15 min per IP) | `{ email, password }` | `200 { user }` and sets the cookie. `401` with one generic message for wrong password, unknown email, locked or disabled account. 5 wrong passwords lock the account for 15 minutes. |
+| POST | `/api/auth/login` | Anyone (20 **failed** tries per 15 min per address) | `{ email, password }` | `200 { user }` and sets the cookie. `401` with one generic message for wrong password, unknown email, locked or disabled account. 5 wrong passwords lock the account for 15 minutes. |
 | POST | `/api/auth/logout` | Anyone | – | Deletes the session on the server and clears the cookie. |
 | GET | `/api/auth/me` | Signed in | – | `{ user: { id, email, name, role } }` |
 | POST | `/api/auth/password` | Signed in | `{ currentPassword, newPassword }` | Changes password (12+ characters, letters and numbers) and signs out every other session. |
@@ -40,8 +43,8 @@ Administrators never hold any level on any document.
 | POST | `/api/documents` | Role **owner** only | *multipart*: `file`, `title`, `category`, `description` | `201 { id }`. File checked: max 10 MB; pdf, png, jpg, docx, xlsx, txt, csv; content must match the extension; name cleaned. |
 | GET | `/api/documents/trash` | Signed in (shows only documents **you own**) | – | Your deleted documents. |
 | GET | `/api/documents/:id` | Level **read** or higher | – | Details, version list, and `can: { edit, manage }`. Logged as `view`. |
-| PATCH | `/api/documents/:id` | Level **edit** or higher | any of `{ title, category, description }` | Updates details; old and new values are logged. |
-| POST | `/api/documents/:id/versions` | Level **edit** or higher | *multipart*: `file` | `201 { version }`. Permission is checked before the file is read. |
+| PATCH | `/api/documents/:id` | Level **edit** or higher | any of `{ title, category, description }` (any other field: 400) | Changes only the fields sent; old and new values are logged. Access is re-checked inside the write. |
+| POST | `/api/documents/:id/versions` | Level **edit** or higher | *multipart*: `file` | `201 { version }`. Permission is checked before the file is read, and again inside the write: if access was removed during the upload, it is refused. |
 | GET | `/api/documents/:id/download?version=N` | Level **read** or higher | `version` optional (default latest) | The file, as an attachment (`application/octet-stream`, `nosniff`, sandbox CSP, no caching). The download is logged **before** the file is sent. |
 | DELETE | `/api/documents/:id` | Level **owner** | – | Moves to trash. Every grantee loses access at once. |
 | POST | `/api/documents/:id/restore` | Level **owner**, document must be in trash | – | Restores it, with its earlier grants. |
@@ -73,8 +76,8 @@ There is deliberately **no endpoint that edits or deletes audit entries**.
 
 ## Errors
 
-`{ "error": "plain message" }` with status 400 (invalid input), 401 (not signed in), 403 (role not allowed, or missing request header), 404 (not found or not allowed), 409 (duplicate), 413 (body too large), 500 (unexpected; no internals are returned).
+`{ "error": "plain message" }` with status 400 (invalid input), 401 (not signed in), 403 (role not allowed, or missing request header), 404 (not found or not allowed), 409 (duplicate), 413 (body too large), 429 (too many requests), 500 (unexpected; no internals are returned).
 
 ## Audit actions
 
-`login`, `logout`, `account_locked`, `password_change`, `password_reset`, `upload`, `new_version`, `view`, `download`, `update_details`, `delete`, `restore`, `grant`, `grant_change`, `revoke`, `list_grants`, `view_activity`, `user_create`, `user_update`, `audit_verify`, `unauthenticated_request`, `csrf_check`, `admin_access`, `user_directory`. Each has `outcome` = `allowed` or `denied`.
+`login`, `logout`, `account_locked`, `password_change`, `password_reset`, `upload`, `new_version`, `view`, `download`, `update_details`, `delete`, `restore`, `grant`, `grant_change`, `revoke`, `list_grants`, `view_activity`, `user_create`, `user_update`, `audit_verify`, `unauthenticated_request`, `csrf_check`, `admin_access`, `user_directory`, `rate_limit`, `malformed_request`. Each has `outcome` = `allowed` or `denied`.

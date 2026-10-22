@@ -37,8 +37,8 @@ Sign in with the accounts listed in the README.
 ### 4. Run the tests
 
 ```bash
-npm test                      # 131 tests against trustvault_test
-npm run test:authz-removal    # removes each of the 33 permission checks in turn; all must be caught (~5 min)
+npm test                      # 149 tests against trustvault_test
+npm run test:authz-removal    # removes each of the 34 permission checks in turn; all must be caught (~5 min)
 npm run verify-audit          # checks the audit hash chain in the dev database
 ```
 

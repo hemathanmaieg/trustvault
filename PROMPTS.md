@@ -71,3 +71,91 @@ Working rules for you:
 - **Caught by:** the AI, checking how the test would behave after the frontend step.
 - **What we did instead:** the test now checks what actually matters: no file content (`%PDF`), no source code, no secrets and no `package.json` contents are ever returned, whatever the status.
 - **Commit:** `ccf85d2`
+
+---
+
+## How the independent review was set up (reused prompt)
+
+After the first version passed all 131 tests, a **separate AI agent that had not written the code** was given this brief, and access to the running server with the demo accounts:
+
+```text
+You are an independent security reviewer acting like a hostile judge. You did not write this code.
+Your job is to find ways to break it, not to praise it. [The three rules from the brief.]
+Read authz.js, guards.js, routes, session.js, audit.js, validate.js. Actively attack the running
+server with curl: IDOR, parameter tampering, path tricks, encoded or differently-cased ids, JSON
+type confusion, prototype pollution, races between revoke and download, CSRF bypass, enumeration,
+huge or malformed inputs. Do NOT modify files. Report each finding with severity, file:line,
+a reproduction, why it matters for the judging rules, and a fix. Separate "confirmed by exploiting"
+from "suspected". Also list what you tried that held.
+```
+
+Every test still passed while all of the problems below existed. That is the main lesson of this file.
+
+## Entry 6 — 2026-10-22 — Anyone could make the audit chain report tampering (audit trail)
+
+- **Asked (original prompt):** "Write an append-only audit log where each row stores an HMAC of the previous hash plus the row, and a verify function."
+- **Produced:** `audit.record()` computed the HMAC over the values **as JavaScript held them**, then inserted them.
+- **What was wrong:** PostgreSQL stores `uuid` values in lowercase. A user who requested `/api/documents/9AA197E4-.../download` (uppercase) produced an entry sealed over the uppercase id but stored in lowercase, so verification reported "Entry #43 was altered after it was written". Any signed-in user could break the evidence on demand, after which real tampering could no longer be told apart. The same applied to user ids in revoke and password reset.
+- **Caught by:** the independent reviewer, by exploiting it on the running server and recomputing the HMAC by hand.
+- **What we did instead:** every value is brought to its stored form before sealing (uuids lowercased, NUL and broken UTF-16 replaced, details round-tripped through JSON). After inserting, the writer **reads the stored row back and re-verifies the seal**, and if it does not match, the whole action rolls back. A representation mismatch can now fail a request, but can never reach the chain. Ids are also normalised once per route with `router.param`.
+- **Tests:** `hardening.test.js` T19 (6 tests).
+- **Commit:** `7672e87`
+
+## Entry 7 — 2026-10-22 — A revoked editor's upload in progress still went through (revocation)
+
+- **Asked:** "Upload a new version: check edit permission first, then read the file, then store it in a transaction."
+- **Produced:** the permission check ran once, before the body was read; the transaction only re-checked that the document was not deleted.
+- **What was wrong:** with a throttled upload (`curl --limit-rate 50k`), the owner revoked the editor 2 seconds in, the revoke returned 200, and the upload still committed version 2 four seconds later. The audit log even showed `revoke` followed by `new_version allowed`. That breaks rule three.
+- **Caught by:** the independent reviewer, by exploiting it.
+- **What we did instead:** inside the write transaction, `recheckInTransaction()` locks the document row (`FOR UPDATE`) and re-reads the grant; grant and revoke take the same lock, so the two are serialised. The same applies to editing details. Downloads now read the file bytes with the access condition repeated **in the same SQL statement**.
+- **Tests:** `hardening.test.js` T03 sends half an upload, revokes, sends the rest, and expects 404, no new version and an `access_removed_during_request` audit entry. The new check has its own removal marker.
+- **Commit:** `7672e87`
+
+## Entry 8 — 2026-10-22 — Defence in depth hid a check from the removal test (testing)
+
+- **Asked (myself, after entry 7):** "Re-run the removal script with the new check."
+- **Produced:** 32/34 caught. Removing the **first** permission check on edit and on new-version was no longer caught, because the new second check also refused.
+- **What was wrong:** nothing leaked, but the first gate has its own job: it refuses **before** a 10 MB upload body is read. The tests no longer proved it worked, and the brief's test ("take one check out, run the tests") would have scored those as untested.
+- **Caught by:** the removal script.
+- **What we did instead:** added a test that checks **which** gate refused: the audit reason must be `no_permission` (first gate), not `access_removed_during_request` (second). 34/34 caught.
+- **Commit:** `7672e87`
+
+## Entry 9 — 2026-10-22 — Renaming a document silently wiped its description (data integrity, audit)
+
+- **Asked:** "PATCH /documents/:id to change title, category or description; edit permission required."
+- **Produced:** a PATCH schema made with `metaSchema.partial()`, reusing the upload schema.
+- **What was wrong:** the upload schema had `description: ...default('')`. `.partial()` keeps defaults, so a PATCH with only a title set the description to `''`, and the audit entry recorded a description change nobody made. An editor renaming a file erased the owner's notes.
+- **Caught by:** the independent reviewer.
+- **What we did instead:** PATCH has its own schema with no defaults, and `.strict()`, so unknown fields like `owner_id` are refused with 400 instead of being silently ignored. The earlier test expecting them to be ignored was changed to expect a refusal.
+- **Tests:** `hardening.test.js` T08, `permissions.test.js` T07.
+- **Commit:** `7672e87`
+
+## Entry 10 — 2026-10-22 — Some refused attempts crashed instead of being recorded (audit trail)
+
+- **Asked:** "Record every refused attempt, including malformed ids."
+- **Produced:** malformed ids were stored in `details.requested_id`.
+- **What was wrong:** an id containing a NUL byte (`%00`) or invalid UTF-8 (`%ED%A0%80`) made PostgreSQL reject the audit insert itself, so the request returned 500 and **left no record**. Impossible dates like `2026-13-45` passed the format check and crashed the date cast. A login email containing `\u0000` crashed before the failed-login entry was written.
+- **Caught by:** the independent reviewer.
+- **What we did instead:** text is cleaned before it is sealed; a middleware refuses NUL and broken UTF-16 in queries and bodies with 400; undecodable URLs are logged as `malformed_request` and answered with 400; dates are checked as real calendar dates.
+- **Tests:** `hardening.test.js` T20 (3 tests).
+- **Commit:** `7672e87`
+
+## Entry 11 — 2026-10-22 — Anyone on the internet could flood the audit log (availability, audit)
+
+- **Asked:** "Log unauthenticated requests to document routes."
+- **Produced:** one audit write per unauthenticated request, with no limit.
+- **What was wrong:** 200 parallel anonymous requests added 200 rows. Every audit write takes one global lock, so a flood also stalled real uploads and downloads. Separately, the login limiter counted **successful** sign-ins, so a few judges behind one office network could lock each other out.
+- **Caught by:** the independent reviewer.
+- **What we did instead:** a per-address limit on the whole API (300/min), a tighter one for callers who are not signed in (30/min), and a login limit that counts failures only. When a limit is first hit, **one** audit entry is written for that window.
+- **Tests:** `hardening.test.js` T39 (2 tests: the cut-off happens at the limit, with exactly one audit entry).
+- **Commit:** `7672e87`
+
+## Entry 12 — 2026-10-22 — An admin could demote themselves by typing their id in capitals (access control)
+
+- **Asked:** "An admin must not be able to change their own role or disable themselves."
+- **Produced:** `if (req.params.id === req.user.id && ...) refuse`.
+- **What was wrong:** a plain string comparison. The same id in uppercase is a different string but the same user, so the check was skipped.
+- **Caught by:** the AI, while fixing entry 6 (it went looking for every other place that compared ids as raw strings).
+- **What we did instead:** ids are lowercased once at the router (`router.param`) before any handler sees them.
+- **Tests:** `hardening.test.js` "an admin cannot demote themselves by writing their own id in UPPERCASE".
+- **Commit:** `7672e87`

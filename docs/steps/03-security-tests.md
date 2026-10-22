@@ -6,7 +6,7 @@
 ## How to run
 
 ```bash
-npm test                      # all 131 tests, needs PostgreSQL (see README)
+npm test                      # all tests (131 at this step; 149 after step 05), needs PostgreSQL (see README)
 npm run test:authz-removal    # removes each permission check in turn (about 5 minutes)
 ```
 
@@ -35,7 +35,7 @@ return Boolean(level) && LEVELS[level] >= LEVELS.read; // AUTHZ:canRead -> retur
 
 `server/scripts/authz-removal-check.js` copies the server to a temporary folder, swaps in the "check removed" line for **one** marker, runs every test, and records whether a test failed. It does this for all 33 checks: every function in `authz.js`, the guards in `guards.js`, the route mounts in `app.js`, and the `documentAccess` call in every document route.
 
-**Result: 33 out of 33 removals were caught.** The full table is in `docs/authz-removal-report.md`.
+**Result: 33 out of 33 removals were caught** (34 of 34 after step 05). The full table is in `docs/authz-removal-report.md`.
 
 Layers that back each other up (for example the SQL visibility condition and the per-row filter in search) are each tested on their own, so removing only one of them is still caught.
 
