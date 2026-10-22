@@ -8,10 +8,22 @@ const authz = require('../authz');
 const audit = require('../audit');
 const { CATEGORIES } = require('../categories');
 const { validateUpload } = require('../upload/validate');
-const { requireUploader, documentAccess, isUuid } = require('../guards');
+const {
+  requireUploader, documentAccess, isUuid, normalizeId, isRealDate, recheckInTransaction, lockDocument,
+} = require('../guards');
 const { HttpError } = require('../errors');
 
 const router = express.Router();
+
+// One spelling for every id: uppercase and lowercase uuids are the same document.
+router.param('id', (req, res, next, id) => {
+  req.params.id = normalizeId(id);
+  next();
+});
+router.param('userId', (req, res, next, id) => {
+  req.params.userId = normalizeId(id);
+  next();
+});
 
 // Files are held in memory only long enough to validate and store them in the
 // database. Nothing is ever written to a public folder.
@@ -27,7 +39,7 @@ function runUpload(req, res) {
   return new Promise((resolve, reject) => upload(req, res, (err) => (err ? reject(err) : resolve())));
 }
 
-const dateStr = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD');
+const dateStr = z.string().refine(isRealDate, 'Use a real date as YYYY-MM-DD');
 const metaSchema = z.object({
   title: z.string().trim().min(1, 'Title is required').max(200),
   category: z.enum(CATEGORIES),
@@ -219,7 +231,23 @@ router.get('/:id', async (req, res, next) => {
 // ---------------------------------------------------------------------------
 // PATCH /api/documents/:id  - change title / category / description (edit)
 // ---------------------------------------------------------------------------
-const patchSchema = metaSchema.partial().refine((v) => Object.keys(v).length > 0, 'Nothing to change');
+// Its own schema, with NO defaults: a field that is not sent must not change.
+// .strict() refuses unknown fields (owner_id, deleted_at, ...) outright.
+const patchSchema = z.object({
+  title: z.string().trim().min(1, 'Title is required').max(200),
+  category: z.enum(CATEGORIES),
+  description: z.string().trim().max(1000),
+}).partial().strict().refine((v) => Object.keys(v).length > 0, 'Nothing to change');
+
+// Thrown inside a write transaction when the caller's access disappeared mid-request.
+class AccessRemoved extends Error {}
+
+async function refuseAccessRemoved(req, res, action, docId) {
+  await audit.record(audit.fromReq(req, {
+    action, outcome: 'denied', documentId: docId, details: { reason: 'access_removed_during_request' },
+  }));
+  res.status(404).json({ error: 'Document not found' });
+}
 
 router.patch('/:id', async (req, res, next) => {
   try {
@@ -235,6 +263,7 @@ router.patch('/:id', async (req, res, next) => {
     }
     if (Object.keys(changes).length === 0) return res.json({ ok: true, changed: [] });
     await withTransaction(async (client) => {
+      if (!(await recheckInTransaction(client, req.user, access.doc.id, 'edit'))) throw new AccessRemoved();
       await client.query(
         `UPDATE documents SET title = COALESCE($2, title), category = COALESCE($3, category),
                 description = COALESCE($4, description), updated_at = now()
@@ -245,6 +274,7 @@ router.patch('/:id', async (req, res, next) => {
     });
     res.json({ ok: true, changed: Object.keys(changes) });
   } catch (err) {
+    if (err instanceof AccessRemoved) return refuseAccessRemoved(req, res, 'update_details', normalizeId(req.params.id)).catch(next);
     next(err);
   }
 });
@@ -261,10 +291,10 @@ router.post('/:id/versions', async (req, res, next) => {
     await runUpload(req, res);
     const file = await validateUpload(req.file);
     const version = await withTransaction(async (client) => {
-      // Lock the document row so two uploads cannot take the same version number,
-      // and re-check it was not deleted in the meantime.
-      const d = await client.query('SELECT current_version FROM documents WHERE id = $1 AND deleted_at IS NULL FOR UPDATE', [access.doc.id]);
-      if (!d.rows[0]) throw new HttpError(404, 'Document not found');
+      // The upload may have taken seconds. Lock the document row and check the
+      // grant AGAIN: if access was revoked (or the document trashed) meanwhile, refuse.
+      if (!(await recheckInTransaction(client, req.user, access.doc.id, 'edit'))) throw new AccessRemoved();
+      const d = await client.query('SELECT current_version FROM documents WHERE id = $1', [access.doc.id]);
       const next = d.rows[0].current_version + 1;
       await client.query(
         `INSERT INTO document_versions (document_id, version_no, filename, mime_type, size_bytes, sha256, content, uploaded_by)
@@ -280,6 +310,7 @@ router.post('/:id/versions', async (req, res, next) => {
     });
     res.status(201).json({ version });
   } catch (err) {
+    if (err instanceof AccessRemoved) return refuseAccessRemoved(req, res, 'new_version', access.doc.id).catch(next);
     if (access && (err instanceof HttpError || (err && err.name === 'MulterError'))) {
       await audit.record(audit.fromReq(req, {
         action: 'new_version', outcome: 'denied', documentId: access.doc.id,
@@ -308,10 +339,14 @@ router.get('/:id/download', async (req, res, next) => {
       versionNo = Number(req.query.version);
       if (!Number.isInteger(versionNo) || versionNo < 1 || versionNo > 100000) throw new HttpError(400, 'Invalid version');
     }
+    // The bytes are read with the access condition repeated IN THE SAME
+    // statement, so a revoke that lands after the check above still stops it.
     const { rows } = await pool.query(
-      `SELECT filename, mime_type, size_bytes, sha256, content FROM document_versions
-        WHERE document_id = $1 AND version_no = $2`,
-      [access.doc.id, versionNo]
+      `SELECT v.filename, v.mime_type, v.size_bytes, v.sha256, v.content
+         FROM document_versions v JOIN documents d ON d.id = v.document_id
+        WHERE v.document_id = $1 AND v.version_no = $2 AND d.deleted_at IS NULL
+          AND ${authz.visibleDocumentsCondition('$3')}`,
+      [access.doc.id, versionNo, req.user.id]
     );
     const v = rows[0];
     if (!v) throw new HttpError(404, 'Version not found');
@@ -358,7 +393,15 @@ router.post('/:id/restore', async (req, res, next) => {
     if (!access) return;
     await withTransaction(async (client) => {
       await client.query('UPDATE documents SET deleted_at = NULL, deleted_by = NULL, updated_at = now() WHERE id = $1', [access.doc.id]);
-      await audit.record(audit.fromReq(req, { action: 'restore', documentId: access.doc.id, details: { title: access.doc.title } }), client);
+      // Restoring brings back the earlier grants; record exactly who regains access.
+      const g = await client.query(
+        'SELECT u.email, g.permission FROM grants g JOIN users u ON u.id = g.user_id WHERE g.document_id = $1 ORDER BY u.email',
+        [access.doc.id]
+      );
+      await audit.record(audit.fromReq(req, {
+        action: 'restore', documentId: access.doc.id,
+        details: { title: access.doc.title, access_restored_for: g.rows.map((r) => `${r.email} (${r.permission})`) },
+      }), client);
     });
     res.json({ ok: true });
   } catch (err) {
@@ -398,7 +441,7 @@ router.put('/:id/grants/:userId', async (req, res, next) => {
     if (!access) return;
     const parsed = grantSchema.safeParse(req.body || {});
     if (!parsed.success) throw new HttpError(400, 'Permission must be "read" or "edit"');
-    const targetId = req.params.userId;
+    const targetId = normalizeId(req.params.userId);
     let target = null;
     if (isUuid(targetId)) {
       const t = await pool.query('SELECT id, email, name, role, is_active FROM users WHERE id = $1', [targetId]);
@@ -412,6 +455,7 @@ router.put('/:id/grants/:userId', async (req, res, next) => {
       throw new HttpError(400, 'This person cannot be given access');
     }
     const result = await withTransaction(async (client) => {
+      await lockDocument(client, access.doc.id); // serialise with in-flight edits
       const prev = await client.query('SELECT permission FROM grants WHERE document_id = $1 AND user_id = $2 FOR UPDATE', [access.doc.id, target.id]);
       const before = prev.rows[0] ? prev.rows[0].permission : null;
       if (before === parsed.data.permission) return { changed: false };
@@ -437,17 +481,20 @@ router.delete('/:id/grants/:userId', async (req, res, next) => {
   try {
     const access = await documentAccess(req, res, { need: 'manage', action: 'revoke' }); // AUTHZ:route_revoke ->     const access = { doc: (await pool.query(authz.documentAccessQuery, [req.params.id, req.user.id])).rows[0], level: "owner" };
     if (!access) return;
-    if (!isUuid(req.params.userId)) throw new HttpError(404, 'That person does not have access');
+    const targetId = normalizeId(req.params.userId);
+    if (!isUuid(targetId)) throw new HttpError(404, 'That person does not have access');
     const removed = await withTransaction(async (client) => {
+      // Same row lock as an in-flight upload or edit: whichever is first finishes first.
+      await lockDocument(client, access.doc.id);
       const del = await client.query(
         `DELETE FROM grants g USING users u
           WHERE g.document_id = $1 AND g.user_id = $2 AND u.id = g.user_id
         RETURNING g.permission, u.email`,
-        [access.doc.id, req.params.userId]
+        [access.doc.id, targetId]
       );
       if (!del.rows[0]) return null;
       await audit.record(audit.fromReq(req, {
-        action: 'revoke', documentId: access.doc.id, targetUserId: req.params.userId,
+        action: 'revoke', documentId: access.doc.id, targetUserId: targetId,
         details: { email: del.rows[0].email, permission: del.rows[0].permission },
       }), client);
       return del.rows[0];

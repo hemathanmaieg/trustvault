@@ -97,6 +97,8 @@ export const ACTION_LABEL = {
   password_reset: 'Reset password',
   account_locked: 'Account locked',
   audit_verify: 'Checked audit chain',
+  rate_limit: 'Too many requests',
+  malformed_request: 'Malformed request',
 };
 
 export function describeEvent(e) {
@@ -113,5 +115,6 @@ export function describeEvent(e) {
   if (d.message) bits.push(d.message);
   if (d.requested_id) bits.push(`tried id "${d.requested_id}"`);
   if (d.problem) bits.push(d.problem);
+  if (Array.isArray(d.access_restored_for) && d.access_restored_for.length) bits.push(`access back for ${d.access_restored_for.join(', ')}`);
   return bits.join('; ');
 }

@@ -1,7 +1,7 @@
 'use strict';
 const express = require('express');
 const { z } = require('zod');
-const rateLimit = require('express-rate-limit');
+const { limiter } = require('../ratelimit');
 const config = require('../config');
 const { pool, withTransaction } = require('../db');
 const authz = require('../authz');
@@ -13,12 +13,14 @@ const { HttpError } = require('../errors');
 
 const router = express.Router();
 
-const loginLimiter = rateLimit({
+// Failed sign-ins per address (successful ones do not count, so a team behind
+// one office network does not lock itself out).
+const loginLimiter = limiter({
   windowMs: 15 * 60 * 1000,
-  limit: config.isTest ? 1000 : 30,
-  standardHeaders: 'draft-7',
-  legacyHeaders: false,
-  message: { error: 'Too many sign-in attempts from this address. Try again later.' },
+  limit: config.rateLimit.loginPer15Min,
+  skipSuccessfulRequests: true,
+  action: 'login',
+  message: 'Too many failed sign-ins from this address. Try again in 15 minutes.',
 });
 
 const loginSchema = z.object({

@@ -46,6 +46,15 @@ describe('T01 another user\'s document cannot be reached by id', () => {
     notFound(await w.as.eve.get(`/api/documents/${w.aliceDoc}`));
     assert.equal((await w.as.vic.get(`/api/documents/${w.aliceDoc}`)).status, 200);
   });
+  it('the FIRST gate refuses edits and uploads, before any file body is read', async () => {
+    // A second check inside the write would also refuse; this proves the early one does its job.
+    await w.as.eve.patch(`/api/documents/${w.aliceDoc}`).send({ title: 'pwned' });
+    const patch = (await h.auditRows("action = 'update_details' AND actor_email = 'eve@test.local'")).pop();
+    assert.equal(patch.details.reason, 'no_permission');
+    await w.as.eve.post(`/api/documents/${w.aliceDoc}/versions`).attach('file', h.makePdf('evil'), 'evil.pdf');
+    const ver = (await h.auditRows("action = 'new_version' AND actor_email = 'eve@test.local'")).pop();
+    assert.equal(ver.details.reason, 'no_permission');
+  });
   it('outsider cannot read the document activity', async () => {
     notFound(await w.as.eve.get(`/api/documents/${w.aliceDoc}/activity`));
   });

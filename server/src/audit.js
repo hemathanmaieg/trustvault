@@ -54,6 +54,38 @@ function sortKeys(value) {
   return value;
 }
 
+// ---- Normalisation ---------------------------------------------------------
+// The hash must be computed over EXACTLY what PostgreSQL stores, or a valid
+// entry will later look tampered with. Postgres lowercases uuids, rejects NUL
+// characters and unpaired surrogates in text/jsonb, and normalises numbers in
+// jsonb. So every value is brought to its stored form BEFORE hashing.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+// NUL, and UTF-16 surrogates that are not part of a valid pair.
+const BAD_TEXT_RE = /\u0000|[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g;
+
+function cleanText(value, max = 500) {
+  if (value === null || value === undefined) return null;
+  return String(value).replace(BAD_TEXT_RE, '�').slice(0, max);
+}
+
+function cleanUuid(value) {
+  if (!value) return null;
+  const s = String(value);
+  return UUID_RE.test(s) ? s.toLowerCase() : null;
+}
+
+function cleanDetails(value) {
+  if (typeof value === 'string') return cleanText(value);
+  if (Array.isArray(value)) return value.map(cleanDetails);
+  if (value && typeof value === 'object') {
+    const out = {};
+    for (const k of Object.keys(value)) out[cleanText(k, 100)] = cleanDetails(value[k]);
+    return out;
+  }
+  if (typeof value === 'number' && !Number.isFinite(value)) return null;
+  return value === undefined ? null : value;
+}
+
 /**
  * Append one event. Pass `client` to write inside an existing transaction
  * (so the action and its audit row commit or fail together).
@@ -67,25 +99,32 @@ async function record(event, client = null) {
     const row = {
       seq,
       occurred_at: new Date(),
-      actor_id: event.actorId || null,
-      actor_email: event.actorEmail || null,
-      action: event.action,
-      outcome: event.outcome || 'allowed',
-      document_id: event.documentId || null,
-      target_user_id: event.targetUserId || null,
-      details: sortKeys(event.details || {}),
-      ip: event.ip || null,
+      actor_id: cleanUuid(event.actorId),
+      actor_email: cleanText(event.actorEmail, 200),
+      action: cleanText(event.action, 60),
+      outcome: event.outcome === 'denied' ? 'denied' : 'allowed',
+      document_id: cleanUuid(event.documentId),
+      target_user_id: cleanUuid(event.targetUserId),
+      // JSON round trip = the same shape jsonb will give back.
+      details: sortKeys(JSON.parse(JSON.stringify(cleanDetails(event.details || {})))),
+      ip: cleanText(event.ip, 100),
     };
     const hash = computeHash(prevHash, row);
-    await db.query(
+    const inserted = await db.query(
       `INSERT INTO audit_log (seq, occurred_at, actor_id, actor_email, action, outcome,
          document_id, target_user_id, details, ip, prev_hash, hash)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *`,
       [
         row.seq, row.occurred_at, row.actor_id, row.actor_email, row.action, row.outcome,
         row.document_id, row.target_user_id, JSON.stringify(row.details), row.ip, prevHash, hash,
       ]
     );
+    // Fail closed: re-check the seal against what was actually stored. If they
+    // ever differ, the whole action rolls back instead of breaking the chain.
+    const stored = inserted.rows[0];
+    if (computeHash(prevHash, { ...stored, details: sortKeys(stored.details) }) !== hash) {
+      throw new Error('Audit entry did not round-trip through the database; refusing to write it');
+    }
     if (!config.isTest) {
       // Off-database anchor of the chain head (see header comment).
       console.log(`[audit-anchor] seq=${seq} hash=${hash}`);

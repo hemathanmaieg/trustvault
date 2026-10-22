@@ -38,6 +38,13 @@ const config = {
     maxFailures: 5,
     lockMinutes: 15,
   },
+  rateLimit: {
+    // Generous for real use; effectively off in tests (tests that check the
+    // limits build their own app with small numbers).
+    apiPerMinute: Number(process.env.RATE_LIMIT_PER_MINUTE || (isTest ? 100000 : 300)),
+    anonPerMinute: Number(process.env.RATE_LIMIT_ANON_PER_MINUTE || (isTest ? 100000 : 30)),
+    loginPer15Min: Number(process.env.RATE_LIMIT_LOGIN || (isTest ? 100000 : 20)),
+  },
   upload: {
     maxBytes: 10 * 1024 * 1024,
   },

@@ -72,12 +72,13 @@ describe('T07 roles cannot be exceeded', () => {
     const { rows } = await h.pool.query("SELECT role FROM users WHERE id = ANY($1)", [[w.users.alice.id, w.users.vic.id]]);
     assert.ok(rows.every((r) => r.role !== 'admin'));
   });
-  it('extra fields in a request (like owner_id or role) are ignored', async () => {
+  it('extra fields in a request (like owner_id or role) are refused and change nothing', async () => {
     const id = await h.upload(w.as.alice, { title: 'Alice extra' });
     const r = await w.as.alice.patch(`/api/documents/${id}`).send({ title: 'renamed', owner_id: w.users.eve.id, role: 'admin' });
-    assert.equal(r.status, 200);
-    const { rows } = await h.pool.query('SELECT owner_id FROM documents WHERE id = $1', [id]);
+    assert.equal(r.status, 400);
+    const { rows } = await h.pool.query('SELECT owner_id, title FROM documents WHERE id = $1', [id]);
     assert.equal(rows[0].owner_id, w.users.alice.id);
+    assert.equal(rows[0].title, 'Alice extra');
     const me = await w.as.alice.get('/api/auth/me');
     assert.equal(me.body.user.role, 'owner');
   });

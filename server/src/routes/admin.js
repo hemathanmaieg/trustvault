@@ -7,10 +7,16 @@ const { pool, withTransaction } = require('../db');
 const audit = require('../audit');
 const { hashPassword, validatePasswordStrength } = require('../auth/passwords');
 const { endAllSessions } = require('../auth/session');
-const { isUuid } = require('../guards');
+const { isUuid, normalizeId, isRealDate } = require('../guards');
 const { HttpError } = require('../errors');
 
 const router = express.Router();
+
+// One spelling for every id: uppercase and lowercase uuids are the same user.
+router.param('id', (req, res, next, id) => {
+  req.params.id = normalizeId(id);
+  next();
+});
 
 function publicUser(u) {
   return {
@@ -98,6 +104,14 @@ router.patch('/users/:id', async (req, res, next) => {
         [u.id, body.name ?? u.name, body.role ?? u.role, body.active ?? u.is_active, Boolean(body.unlock)]
       );
       // A role change or a disable ends every session immediately.
+      // An admin cannot own documents, so someone who still owns documents
+      // cannot be made an admin (their files would be left with no manager).
+      if (changes.role && changes.role.to === 'admin') {
+        const owned = await client.query('SELECT count(*)::int AS n FROM documents WHERE owner_id = $1', [u.id]);
+        if (owned.rows[0].n > 0) {
+          throw new HttpError(400, 'This person owns documents. They must delete them before becoming an administrator.');
+        }
+      }
       if (changes.role || changes.active) await endAllSessions(u.id, client);
       // An admin never holds document grants.
       if (changes.role && changes.role.to === 'admin') {
@@ -141,8 +155,8 @@ const auditQuery = z.object({
   outcome: z.enum(['allowed', 'denied']).optional(),
   actor: z.string().trim().max(200).optional(),
   document: z.string().trim().optional(),
-  from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-  to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  from: z.string().refine(isRealDate).optional(),
+  to: z.string().refine(isRealDate).optional(),
   page: z.coerce.number().int().min(1).max(10000).optional().default(1),
 });
 
@@ -158,7 +172,7 @@ router.get('/audit', async (req, res, next) => {
     if (f.actor) { params.push(`%${f.actor.replace(/[\\%_]/g, (c) => `\\${c}`)}%`); where.push(`a.actor_email ILIKE $${params.length} ESCAPE '\\'`); }
     if (f.document) {
       if (!isUuid(f.document)) throw new HttpError(400, 'Document filter must be a document id');
-      params.push(f.document); where.push(`a.document_id = $${params.length}`);
+      params.push(normalizeId(f.document)); where.push(`a.document_id = $${params.length}`);
     }
     if (f.from) { params.push(f.from); where.push(`a.occurred_at >= $${params.length}::date`); }
     if (f.to) { params.push(f.to); where.push(`a.occurred_at < ($${params.length}::date + 1)`); }

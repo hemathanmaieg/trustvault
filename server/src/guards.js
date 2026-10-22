@@ -10,6 +10,36 @@ function isUuid(value) {
   return typeof value === 'string' && UUID_RE.test(value);
 }
 
+/** Lowercase a uuid so the same id is always spelled the same way. */
+function normalizeId(value) {
+  return isUuid(value) ? value.toLowerCase() : value;
+}
+
+/** True for a real calendar date in YYYY-MM-DD form (rejects 2026-13-45). */
+function isRealDate(value) {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const d = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === value;
+}
+
+// NUL characters and broken UTF-16 cannot be stored by PostgreSQL; refuse them
+// up front with a clear 400 instead of failing deep inside a query.
+const BAD_TEXT_RE = /\u0000|[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+function hasBadText(value, depth = 0) {
+  if (depth > 10) return true;
+  if (typeof value === 'string') return BAD_TEXT_RE.test(value);
+  if (Array.isArray(value)) return value.some((v) => hasBadText(v, depth + 1));
+  if (value && typeof value === 'object') return Object.entries(value).some(([k, v]) => BAD_TEXT_RE.test(k) || hasBadText(v, depth + 1));
+  return false;
+}
+
+function rejectBadText(req, res, next) {
+  if (hasBadText(req.query) || hasBadText(req.body) || BAD_TEXT_RE.test(req.path)) {
+    return res.status(400).json({ error: 'The request contains characters that are not allowed' });
+  }
+  return next();
+}
+
 /** Reject state-changing requests that lack our custom header (CSRF). */
 async function csrfProtect(req, res, next) {
   if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) return next();
@@ -72,7 +102,7 @@ const NEEDS = {
  * @returns {Promise<{doc, level}|null>} null means a response was already sent.
  */
 async function documentAccess(req, res, { need, action, trashed = false }) {
-  const id = req.params.id;
+  const id = normalizeId(req.params.id);
   const valid = isUuid(id);
   let row = null;
   if (valid) {
@@ -101,8 +131,34 @@ async function documentAccess(req, res, { need, action, trashed = false }) {
   return { doc: row, level };
 }
 
+/**
+ * Second check for writes that take time (an upload in progress, an edit):
+ * inside the write's own transaction, lock the document row and re-read the
+ * caller's grant. Grant and revoke lock the same row, so a revoke either
+ * finishes first (and this refuses) or waits until this write is done.
+ * Without this, an editor removed in the middle of a slow upload could still
+ * add a version after the revoke.
+ */
+async function recheckInTransaction(client, user, docId, need) {
+  const { rows } = await client.query(`${authz.documentAccessQuery} FOR UPDATE OF d`, [docId, user.id]);
+  const row = rows[0] || null;
+  const stateOk = authz.isDocumentLive(row);
+  const level = authz.levelFor(user, row);
+  return stateOk && NEEDS[need](level); // AUTHZ:recheckInTransaction -> return true;
+}
+
+/** Lock a document row so grant changes and in-flight writes are serialised. */
+async function lockDocument(client, docId) {
+  await client.query('SELECT id FROM documents WHERE id = $1 FOR UPDATE', [docId]);
+}
+
 module.exports = {
   isUuid,
+  normalizeId,
+  isRealDate,
+  rejectBadText,
+  recheckInTransaction,
+  lockDocument,
   csrfProtect,
   requireAuth,
   requireAdmin,

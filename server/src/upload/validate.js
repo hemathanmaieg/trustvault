@@ -3,7 +3,12 @@
 // Content-Type the browser claims.
 const crypto = require('crypto');
 const path = require('path');
-const FileType = require('file-type');
+// file-type is published as an ES module only; load it once, lazily.
+let fileTypeFromBuffer;
+async function detectType(buffer) {
+  if (!fileTypeFromBuffer) ({ fileTypeFromBuffer } = await import('file-type'));
+  return fileTypeFromBuffer(buffer);
+}
 const { HttpError } = require('../errors');
 const config = require('../config');
 
@@ -61,7 +66,7 @@ async function validateUpload(file) {
     throw new HttpError(400, `File type not allowed. Allowed: ${ALLOWED_EXTENSIONS.join(', ')}`);
   }
 
-  const detected = await FileType.fromBuffer(file.buffer);
+  const detected = await detectType(file.buffer);
   if (rule.detect) {
     if (!detected || detected.ext !== rule.detect) {
       throw new HttpError(400, `The file content does not match its .${ext} extension`);
