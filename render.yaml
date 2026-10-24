@@ -28,10 +28,12 @@ services:
       # Never change it after the first deploy, or existing entries will no longer verify.
       - key: AUDIT_HMAC_KEY
         generateValue: true
-      # Seed account passwords: enter them in the Render dashboard (sync: false keeps them out of git).
+      # Demo account passwords. These are PUBLIC on purpose: the brief requires
+      # them in the README so judges can sign in. They unlock demo data only.
+      # Change them here (before the first deploy) for anything real.
       - key: SEED_ADMIN_PASSWORD
-        sync: false
+        value: AdminDemo2026!
       - key: SEED_OWNER_PASSWORD
-        sync: false
+        value: OwnerDemo2026!
       - key: SEED_VIEWER_PASSWORD
-        sync: false
+        value: ViewerDemo2026!
