@@ -6,8 +6,8 @@
 
 | Hand-in item from the brief | Status | Where |
 | --- | --- | --- |
-| Public Git repository with history | Code ready, 9 commits so far; **push needed** | – |
-| Live URL with seed data, credentials in README | Config ready and tested from a clean clone; **deploy needed** | `render.yaml`, DEPLOY.md, README |
+| Public Git repository with history | Pushed: github.com/hemathanmaieg/trustvault | – |
+| Live URL with seed data, credentials in README | Live: https://trustvault-7apy.onrender.com (Render Blueprint, free plan) | `render.yaml`, DEPLOY.md, README |
 | THREATS.md | Done: 40+ threats, status, tests, what held under attack | THREATS.md |
 | PROMPTS.md (5+ dated entries, 2+ on authz/audit) | 12 entries, 7 on access control or audit, each with its commit | PROMPTS.md |
 | Automated tests incl. isolation | 149 tests; 34/34 checks proven | `server/test/`, `docs/authz-removal-report.md` |
@@ -31,3 +31,10 @@
 5. **PROMPTS.md:** add 2–3 entries of her own from reading and changing the code. They must be real.
 6. **Interview:** work through INTERVIEW-PREP.md, especially section 1, out loud.
 7. **Just before submitting:** run `npm test`, `npm run test:authz-removal` and `npm audit`, then open the live URL once to wake it up.
+
+## Done on 2026-10-24
+
+- Pushed to github.com/hemathanmaieg/trustvault (her account signed in through GitHub's device sign-in; her password was never used).
+- Deployed on Render as a Blueprint from the public repo URL: web service `trustvault` + PostgreSQL `trustvault-db`, both free plan.
+- Checked on the live site: health 200; documents, downloads and admin routes refuse anyone not signed in (401); sign-in without the request header refused (403); unknown user refused (401).
+- Still to do by a person: sign in once with each demo account to confirm, record the demo video, add her own PROMPTS.md entries.
