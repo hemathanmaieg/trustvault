@@ -10,7 +10,7 @@
 | Live URL with seed data, credentials in README | Live: https://trustvault-7apy.onrender.com (Render Blueprint, free plan) | `render.yaml`, DEPLOY.md, README |
 | THREATS.md | Done: 40+ threats, status, tests, what held under attack | THREATS.md |
 | PROMPTS.md (5+ dated entries, 2+ on authz/audit) | 12 entries, 7 on access control or audit, each with its commit | PROMPTS.md |
-| Automated tests incl. isolation | 149 tests; 34/34 checks proven | `server/test/`, `docs/authz-removal-report.md` |
+| Automated tests incl. isolation | 151 tests; 34/34 checks proven | `server/test/`, `docs/authz-removal-report.md` |
 | Schema, setup scripts, deployment instructions | Done | `server/db/`, DEPLOY.md |
 | API documentation with who may call each endpoint | Done | API.md |
 | Five-minute demo video | Script ready; **recording needed** | docs/DEMO-SCRIPT.md |

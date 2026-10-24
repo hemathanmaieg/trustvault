@@ -14,15 +14,15 @@ Built for the Snovasys Fresher Hiring Challenge 2026.
 | --- | --- | --- | --- |
 | Administrator | `admin@trustvault.demo` | `AdminDemo2026!` | Alerts, activity log, "Check the chain", disable a user |
 | Document owner | `owner@trustvault.demo` | `OwnerDemo2026!` | Owns 3 documents; share, revoke, see activity |
-| Document owner | `owner2@trustvault.demo` | `OwnerDemo2026!` | Owns 2 documents; can edit Omar's Acme contract |
+| Document owner | `owner2@trustvault.demo` | `OwnerDemo2026!` | Owns 2 documents; can edit Yugu's Acme contract |
 | Viewer | `viewer@trustvault.demo` | `ViewerDemo2026!` | Can read only the salary letter |
-| Viewer | `viewer2@trustvault.demo` | `ViewerDemo2026!` | Can read only Olivia's two documents |
+| Viewer | `viewer2@trustvault.demo` | `ViewerDemo2026!` | Can read only Darshak's two documents |
 
 The second owner and viewer exist so "one user cannot reach another user's documents" can be tried by hand. Five wrong passwords lock an account for 15 minutes; an admin can unlock it from **People**.
 
 | Seeded document | Owner | Shared with |
 | --- | --- | --- |
-| Salary letter - Vikram | owner@ | viewer@ (read) |
+| Salary letter - Sai | owner@ | viewer@ (read) |
 | Customer contract - Acme Ltd | owner@ | owner2@ (edit) |
 | Board notes - private | owner@ | nobody |
 | Bridge drawing notes | owner2@ | viewer2@ (read) |
@@ -54,7 +54,7 @@ Access is **per document, to named people only**. Categories organise documents;
 ## Tests
 
 ```bash
-npm test                      # 149 tests: isolation, permissions, revocation, audit, uploads, sign-in, hardening
+npm test                      # 151 tests: isolation, permissions, revocation, audit, uploads, sign-in, hardening
 npm run test:authz-removal    # removes each of 34 permission checks, one at a time; every removal is caught
 ```
 
@@ -95,7 +95,7 @@ server/
     routes/           auth, documents, users, admin
     app.js, config.js, db.js, errors.js
   db/                 schema.sql, migrate.js, seed.js, create-local-db.sql
-  test/               149 tests
+  test/               151 tests
   scripts/            authz-removal-check.js, verify-audit.js
 client/               React app
 docs/                 build log (steps/), authz removal report, demo script, interview prep

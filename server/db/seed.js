@@ -21,30 +21,30 @@ function pw(name, devDefault) {
 }
 
 const USERS = [
-  { key: 'admin', email: 'admin@trustvault.demo', name: 'Asha Admin', role: 'admin', password: () => pw('SEED_ADMIN_PASSWORD', 'AdminDemo2026!') },
-  { key: 'owner1', email: 'owner@trustvault.demo', name: 'Omar Owner', role: 'owner', password: () => pw('SEED_OWNER_PASSWORD', 'OwnerDemo2026!') },
-  { key: 'owner2', email: 'owner2@trustvault.demo', name: 'Olivia Owner', role: 'owner', password: () => pw('SEED_OWNER_PASSWORD', 'OwnerDemo2026!') },
-  { key: 'viewer1', email: 'viewer@trustvault.demo', name: 'Vikram Viewer', role: 'viewer', password: () => pw('SEED_VIEWER_PASSWORD', 'ViewerDemo2026!') },
-  { key: 'viewer2', email: 'viewer2@trustvault.demo', name: 'Vera Viewer', role: 'viewer', password: () => pw('SEED_VIEWER_PASSWORD', 'ViewerDemo2026!') },
+  { key: 'admin', email: 'admin@trustvault.demo', name: 'Thanmaie', role: 'admin', password: () => pw('SEED_ADMIN_PASSWORD', 'AdminDemo2026!') },
+  { key: 'owner1', email: 'owner@trustvault.demo', name: 'Yugu', role: 'owner', password: () => pw('SEED_OWNER_PASSWORD', 'OwnerDemo2026!') },
+  { key: 'owner2', email: 'owner2@trustvault.demo', name: 'Darshak', role: 'owner', password: () => pw('SEED_OWNER_PASSWORD', 'OwnerDemo2026!') },
+  { key: 'viewer1', email: 'viewer@trustvault.demo', name: 'Sai', role: 'viewer', password: () => pw('SEED_VIEWER_PASSWORD', 'ViewerDemo2026!') },
+  { key: 'viewer2', email: 'viewer2@trustvault.demo', name: 'Srinu', role: 'viewer', password: () => pw('SEED_VIEWER_PASSWORD', 'ViewerDemo2026!') },
 ];
 
 const DOCS = [
   {
-    owner: 'owner1', title: 'Salary letter - Vikram', category: 'HR',
+    owner: 'owner1', title: 'Salary letter - Sai', category: 'HR',
     description: 'Annual compensation letter. Shared only with the employee.',
-    file: { name: 'salary-letter-vikram.pdf', bytes: () => makePdf('Salary letter for Vikram Viewer - CONFIDENTIAL') },
+    file: { name: 'salary-letter-sai.pdf', bytes: () => makePdf('Salary letter for Sai - CONFIDENTIAL') },
     grants: [{ to: 'viewer1', permission: 'read' }],
   },
   {
     owner: 'owner1', title: 'Customer contract - Acme Ltd', category: 'Contracts',
-    description: 'Master services agreement, being edited with Olivia.',
+    description: 'Master services agreement, being edited with Darshak.',
     file: { name: 'acme-contract.pdf', bytes: () => makePdf('Acme Ltd master services agreement - CONFIDENTIAL') },
     grants: [{ to: 'owner2', permission: 'edit' }],
   },
   {
     owner: 'owner1', title: 'Board notes - private', category: 'General',
     description: 'Not shared with anyone.',
-    file: { name: 'board-notes.txt', bytes: () => makeText('Board notes. Only Omar should ever see this.\n') },
+    file: { name: 'board-notes.txt', bytes: () => makeText('Board notes. Only Yugu should ever see this.\n') },
     grants: [],
   },
   {
@@ -55,16 +55,65 @@ const DOCS = [
   },
   {
     owner: 'owner2', title: 'Audit papers Q3', category: 'Audit',
-    description: 'For the regulator. Read-only for Vera.',
+    description: 'For the regulator. Read-only for Srinu.',
     file: { name: 'audit-q3.csv', bytes: () => makeText('account,amount\nrevenue,120000\ncosts,80000\n') },
     grants: [{ to: 'viewer2', permission: 'read' }],
   },
 ];
 
+// Earlier demo names. A database seeded before the rename is updated once on
+// the next start; only values still equal to the OLD seed text are changed,
+// so anything someone edited by hand is left alone. Every change is audited.
+const RENAMES = {
+  users: [
+    { email: 'admin@trustvault.demo', from: 'Asha Admin', to: 'Thanmaie' },
+    { email: 'owner@trustvault.demo', from: 'Omar Owner', to: 'Yugu' },
+    { email: 'owner2@trustvault.demo', from: 'Olivia Owner', to: 'Darshak' },
+    { email: 'viewer@trustvault.demo', from: 'Vikram Viewer', to: 'Sai' },
+    { email: 'viewer2@trustvault.demo', from: 'Vera Viewer', to: 'Srinu' },
+  ],
+  documents: [
+    { ownerEmail: 'owner@trustvault.demo', field: 'title', from: 'Salary letter - Vikram', to: 'Salary letter - Sai' },
+    { ownerEmail: 'owner@trustvault.demo', field: 'description', from: 'Master services agreement, being edited with Olivia.', to: 'Master services agreement, being edited with Darshak.' },
+    { ownerEmail: 'owner2@trustvault.demo', field: 'description', from: 'For the regulator. Read-only for Vera.', to: 'For the regulator. Read-only for Srinu.' },
+  ],
+};
+
+async function applyDemoRenames() {
+  let changed = 0;
+  await withTransaction(async (client) => {
+    for (const r of RENAMES.users) {
+      const { rows } = await client.query(
+        'UPDATE users SET name = $3, updated_at = now() WHERE lower(email) = $1 AND name = $2 RETURNING id',
+        [r.email, r.from, r.to]
+      );
+      for (const u of rows) {
+        changed += 1;
+        await audit.record({ actorEmail: 'seed-script', action: 'user_update', targetUserId: u.id, details: { email: r.email, changes: { name: { from: r.from, to: r.to } }, reason: 'demo_rename' } }, client);
+      }
+    }
+    for (const d of RENAMES.documents) {
+      const field = d.field === 'title' ? 'title' : 'description';
+      const { rows } = await client.query(
+        `UPDATE documents SET ${field} = $3, updated_at = now()
+          WHERE ${field} = $2 AND owner_id = (SELECT id FROM users WHERE lower(email) = $1) RETURNING id`,
+        [d.ownerEmail, d.from, d.to]
+      );
+      for (const doc of rows) {
+        changed += 1;
+        await audit.record({ actorEmail: 'seed-script', action: 'update_details', documentId: doc.id, details: { changes: { [field]: { from: d.from, to: d.to } }, reason: 'demo_rename' } }, client);
+      }
+    }
+  });
+  if (changed) console.log(`Renamed ${changed} demo values.`);
+  return changed;
+}
+
 async function seed() {
   const existing = await pool.query('SELECT count(*)::int AS n FROM users');
   if (existing.rows[0].n > 0) {
     console.log('Users already exist, skipping seed.');
+    await applyDemoRenames();
     return false;
   }
   await withTransaction(async (client) => {
@@ -108,7 +157,7 @@ async function seed() {
   return true;
 }
 
-module.exports = { seed, USERS };
+module.exports = { seed, USERS, applyDemoRenames, RENAMES };
 
 if (require.main === module) {
   seed()

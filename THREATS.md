@@ -61,7 +61,7 @@ Status key: **Closed** (prevented and tested), **Mitigated** (made hard or detec
 | T30 | Session stolen through the page | Script on the page reads the cookie | HttpOnly cookie; strict Content Security Policy (`script-src 'self'`); React escapes all text. | Closed | auth (header tests) |
 | T31 | Session sent over plain HTTP | Network sniffing | In production the cookie is `Secure` with the `__Host-` prefix and HSTS is on. | Closed | – (production setting, checked by hand) |
 | T32 | Clickjacking | Load TrustVault in a hidden frame | `frame-ancestors 'none'`. | Closed | auth (header test) |
-| T33 | Administrator impersonates an owner | Admin resets Omar's password and signs in as Omar to read his files | Not prevented. It is recorded (`password_reset` then `login` from the admin's IP), and Omar is signed out everywhere, so he notices. A real fix needs a reset link sent to the user or a second approver. | Accepted | – |
+| T33 | Administrator impersonates an owner | Admin resets Yugu's password and signs in as Yugu to read his files | Not prevented. It is recorded (`password_reset` then `login` from the admin's IP), and Yugu is signed out everywhere, so he notices. A real fix needs a reset link sent to the user or a second approver. | Accepted | – |
 
 ## E. Uploads and downloads
 
@@ -89,7 +89,7 @@ Status key: **Closed** (prevented and tested), **Mitigated** (made hard or detec
 
 ## How the tests prove they test something
 
-`npm run test:authz-removal` takes each of the 34 marked checks (every function in `authz.js`, each guard in `guards.js` including the in-transaction re-check, the route mounts in `app.js`, and the `documentAccess()` call in each of the 10 document routes), removes **one**, runs all 149 tests on a copy of the code, and records whether a test failed. All 34 removals are caught. The report with the failing test for each is in `docs/authz-removal-report.md`.
+`npm run test:authz-removal` takes each of the 34 marked checks (every function in `authz.js`, each guard in `guards.js` including the in-transaction re-check, the route mounts in `app.js`, and the `documentAccess()` call in each of the 10 document routes), removes **one**, runs all 151 tests on a copy of the code, and records whether a test failed. All 34 removals are caught. The report with the failing test for each is in `docs/authz-removal-report.md`.
 
 ## Attacks tried by the independent review that held
 

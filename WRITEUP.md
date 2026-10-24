@@ -17,7 +17,7 @@ The ten required features, and where each is:
 | 7 | Search by name, owner, category, date | Documents page filters; `GET /api/documents` |
 | 8 | Upload validation | `server/src/upload/validate.js` (type by content, size, name) |
 | 9 | Admin view of activity and permission changes | Alerts, Activity log, Documents overview |
-| 10 | Tests that one user cannot reach another's documents | `server/test/isolation.test.js` and 6 more files, 149 tests |
+| 10 | Tests that one user cannot reach another's documents | `server/test/isolation.test.js` and 6 more files, 151 tests |
 
 Beyond the floor: version history (every version protected and downloadable), trash with restore, a per-document activity view for owners, admin alerts (retries after revoke, repeated refusals, bulk downloads, locked accounts), a one-click audit chain check, account lockout and admin unlock, password change that signs out other devices, and a script that removes each of the 34 permission checks one at a time to prove the tests catch it.
 

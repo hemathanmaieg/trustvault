@@ -46,7 +46,7 @@ No file path or bucket URL exists to leak, so the checked route is the only way 
 No. Admins cannot be given grants, and `roleMayHoldDocuments` refuses them even if a grant row is planted in the database (tested). The weakness to admit: an admin can reset an owner's password and sign in as them. It is logged and signs the owner out, but it is not prevented (T33).
 
 **How do you know your tests test anything?**
-`npm run test:authz-removal` removes each of the 34 checks one at a time and runs all 149 tests. Every removal is caught.
+`npm run test:authz-removal` removes each of the 34 checks one at a time and runs all 151 tests. Every removal is caught.
 
 **Why Node/Express and PostgreSQL?**
 Small and readable, so every route can be traced in an interview. PostgreSQL gives transactions and row locks (versions, revoke races), triggers for the append-only log, and it stores the files.
