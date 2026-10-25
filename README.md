@@ -5,7 +5,7 @@ Secure document sharing where the wrong person cannot reach a file, and where yo
 Built for the Snovasys Fresher Hiring Challenge 2026.
 
 - **Live demo:** https://trustvault-7apy.onrender.com *(free hosting: the first visit after 15 idle minutes takes up to a minute to wake up)*
-- **Demo video:** *(link)*
+- **Demo video:**https://youtu.be/ulDrvhGGBQE*
 - **Submission answers:** [SUBMISSION.md](SUBMISSION.md) · **Logins spreadsheet:** [logins.xlsx](logins.xlsx)
 - **Write-up:** [WRITEUP.md](WRITEUP.md) · **Threats:** [THREATS.md](THREATS.md) · **AI use:** [PROMPTS.md](PROMPTS.md) · **API:** [API.md](API.md) · **Deploy:** [DEPLOY.md](DEPLOY.md)
 
